@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# Get OS type from /etc/os-release
+ostype=$(grep ^ID= /etc/os-release | cut -d'=' -f2)
+repos_file="/etc/minpkg/repos.list"
+first=$1
+package_name=$2
+
+# Check if curl is installed
+if ! command -v curl &> /dev/null; then
+    echo -e "cURL is not installed, would you like to install it for ${ostype}?\n(Press enter to continue, press Ctrl+C)"
+    read 
+
+    installcurl() {
+        case $ostype in
+            ubuntu|debian)
+                sudo apt install -y curl unzip zip
+                ;;
+            fedora)
+                sudo dnf install -y curl unzip zip
+                ;;
+            centos|rhel)
+                sudo yum install -y curl unzip zip
+                ;;
+            arch)
+                sudo pacman -Sy curl unzip zip
+                ;;
+            *)
+                echo "Unknown distro detected (${ostype}), please install it manually using your package manager."
+                exit 1
+                ;;
+        esac
+    }
+
+    installcurl 
+    echo "cURL installed successfully."
+fi
+
+# Repo adding function
+addrepo() {
+    echo "repo=$package_name" >> /etc/minpkg/repos.list
+}
+
+# Check if the first argument is 'addrepo'
+if [[ "$first" == "addrepo" ]]; then
+    addrepo
+    exit 0
+fi
+
+# Package installing function
+installpkg() {
+    # Create a temporary directory
+    temp_dir="/tmp/${package_name}_temp"
+    mkdir -p "$temp_dir"
+    
+    # Read and process each repo URL
+    grep "^repo=" "$repos_file" | cut -d'=' -f2 | while read -r repo_url; do
+        # Construct the full URL to the .min file
+        file_url="${repo_url}/${package_name}.min"
+        
+        # Download the .min file using curl
+        echo "Downloading $file_url"
+        curl -L "$file_url" --silent -o "$temp_dir/${package_name}.min"
+        
+        # Check if the file was downloaded
+        if [ -f "$temp_dir/${package_name}.min" ]; then
+            read -p "$(echo -e 'Continue install?\nCancel with Ctrl+C\n':)"
+            # Unzip the file
+            unzip "$temp_dir/${package_name}.min" -d "$temp_dir"
+            # Copy all contents to the root directory
+            sudo cp -r "$temp_dir"/* /
+            echo "${package_name} has been successfully installed."
+        else
+            echo "Failed to download $file_url"
+        fi
+    done
+    
+    # Clean up
+    rm -rf "$temp_dir"
+}
+
+# Check if the first argument is 'install'
+if [[ "$first" == "install" ]]; then
+    installpkg
+fi
